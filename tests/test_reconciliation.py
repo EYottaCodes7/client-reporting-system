@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import pandas as pd
 from src.reporting.cleaning import (
     clean_payments,
     clean_sales,
@@ -30,3 +30,34 @@ report = create_reconciliation_report(
 print("\nRECONCILIATION REPORT")
 print("-" * 60)
 print(report.to_string(index=False))
+
+from src.reporting.reconciliation import (
+    find_unmatched_payments,
+)
+
+# Test payment without a corresponding sale.
+unmatched_payment = pd.DataFrame(
+    [
+        {
+            "payment_id": "P999",
+            "order_id": 9999,
+            "payment_date": "2026-08-06",
+            "amount": 150.00,
+            "payment_method": "bank",
+        }
+    ]
+)
+
+payments_with_unmatched = pd.concat(
+    [payments, unmatched_payment],
+    ignore_index=True,
+)
+
+unmatched = find_unmatched_payments(
+    sales,
+    payments_with_unmatched,
+)
+
+print("\nUNMATCHED PAYMENT TEST")
+print("-" * 40)
+print(unmatched.to_string(index=False))

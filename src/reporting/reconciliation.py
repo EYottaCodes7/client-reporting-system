@@ -5,7 +5,7 @@ def reconcile_sales_and_payments(
     sales: pd.DataFrame,
     payments: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Compare sales against aggregated payments and classify each order."""
+    """Compare sales against aggregated payments."""
 
     sales_data = sales[
         ["order_id", "customer_id", "order_date", "amount", "status"]
@@ -21,8 +21,7 @@ def reconcile_sales_and_payments(
         }
     )
 
-    # One order can have multiple payment records.
-    # Aggregate them so reconciliation remains one row per order.
+    # One order can have multiple payments.
     payments_data = (
         payments_data
         .groupby("order_id", as_index=False)
@@ -31,13 +30,14 @@ def reconcile_sales_and_payments(
         )
     )
 
+    # Start with every sale.
     reconciled = sales_data.merge(
         payments_data,
         on="order_id",
         how="left",
     )
 
-    # Keep track of whether a payment record actually existed.
+    # Track whether a payment exists.
     reconciled["has_payment"] = (
         reconciled["paid_amount"].notna()
     )
@@ -53,7 +53,7 @@ def reconcile_sales_and_payments(
 
     reconciled["reconciliation_status"] = "MATCH"
 
-    # Cancelled orders with payments take priority.
+    # Cancelled orders that received payment.
     reconciled.loc[
         (
             (reconciled["status"] == "cancelled")
@@ -63,7 +63,7 @@ def reconcile_sales_and_payments(
         "reconciliation_status",
     ] = "CANCELLED_WITH_PAYMENT"
 
-    # Orders with no payment record.
+    # Sales with no payment record.
     reconciled.loc[
         ~reconciled["has_payment"],
         "reconciliation_status",
@@ -91,6 +91,38 @@ def reconcile_sales_and_payments(
     ] = "OVERPAYMENT"
 
     return reconciled
+
+
+def find_unmatched_payments(
+    sales: pd.DataFrame,
+    payments: pd.DataFrame,
+) -> pd.DataFrame:
+    """Find payments that do not have a corresponding sale."""
+
+    sales_orders = sales[
+        ["order_id"]
+    ].drop_duplicates()
+
+    unmatched = payments.merge(
+        sales_orders,
+        on="order_id",
+        how="left",
+        indicator=True,
+    )
+
+    unmatched = unmatched[
+        unmatched["_merge"] == "left_only"
+    ].copy()
+
+    unmatched = unmatched.drop(
+        columns=["_merge"]
+    )
+
+    unmatched["reconciliation_status"] = (
+        "UNMATCHED_PAYMENT"
+    )
+
+    return unmatched
 
 
 def create_reconciliation_report(
