@@ -5,7 +5,7 @@ def reconcile_sales_and_payments(
     sales: pd.DataFrame,
     payments: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Compare sales against payments and classify each order."""
+    """Compare sales against aggregated payments and classify each order."""
 
     sales_data = sales[
         ["order_id", "customer_id", "order_date", "amount", "status"]
@@ -21,16 +21,25 @@ def reconcile_sales_and_payments(
         }
     )
 
-    payments_data = payments_data.rename(
-        columns={
-            "amount": "paid_amount",
-        }
+    # One order can have multiple payment records.
+    # Aggregate them so reconciliation remains one row per order.
+    payments_data = (
+        payments_data
+        .groupby("order_id", as_index=False)
+        .agg(
+            paid_amount=("amount", "sum"),
+        )
     )
 
     reconciled = sales_data.merge(
         payments_data,
         on="order_id",
         how="left",
+    )
+
+    # Keep track of whether a payment record actually existed.
+    reconciled["has_payment"] = (
+        reconciled["paid_amount"].notna()
     )
 
     reconciled["paid_amount"] = (
@@ -44,30 +53,45 @@ def reconcile_sales_and_payments(
 
     reconciled["reconciliation_status"] = "MATCH"
 
+    # Cancelled orders with payments take priority.
     reconciled.loc[
-        reconciled["paid_amount"] == 0,
+        (
+            (reconciled["status"] == "cancelled")
+            & reconciled["has_payment"]
+            & (reconciled["paid_amount"] > 0)
+        ),
+        "reconciliation_status",
+    ] = "CANCELLED_WITH_PAYMENT"
+
+    # Orders with no payment record.
+    reconciled.loc[
+        ~reconciled["has_payment"],
         "reconciliation_status",
     ] = "MISSING_PAYMENT"
 
+    # Partially paid orders.
     reconciled.loc[
         (
-            (reconciled["paid_amount"] > 0)
+            reconciled["has_payment"]
+            & (reconciled["paid_amount"] > 0)
             & (reconciled["paid_amount"] < reconciled["sale_amount"])
+            & (reconciled["status"] != "cancelled")
         ),
         "reconciliation_status",
     ] = "PARTIAL_PAYMENT"
 
+    # Overpaid orders.
     reconciled.loc[
-        reconciled["paid_amount"] > reconciled["sale_amount"],
+        (
+            reconciled["has_payment"]
+            & (reconciled["paid_amount"] > reconciled["sale_amount"])
+            & (reconciled["status"] != "cancelled")
+        ),
         "reconciliation_status",
     ] = "OVERPAYMENT"
 
-    reconciled.loc[
-        reconciled["status"] == "cancelled",
-        "reconciliation_status",
-    ] = "CANCELLED_WITH_PAYMENT"
-
     return reconciled
+
 
 def create_reconciliation_report(
     reconciled: pd.DataFrame,
