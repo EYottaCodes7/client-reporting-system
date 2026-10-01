@@ -5,7 +5,7 @@ def reconcile_sales_and_payments(
     sales: pd.DataFrame,
     payments: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Compare sales against aggregated payments."""
+    """Compare sales against aggregated payments and classify each order."""
 
     sales_data = sales[
         ["order_id", "customer_id", "order_date", "amount", "status"]
@@ -21,7 +21,8 @@ def reconcile_sales_and_payments(
         }
     )
 
-    # One order can have multiple payments.
+    # One order can have multiple payment records.
+    # Aggregate them so reconciliation remains one row per order.
     payments_data = (
         payments_data
         .groupby("order_id", as_index=False)
@@ -37,7 +38,7 @@ def reconcile_sales_and_payments(
         how="left",
     )
 
-    # Track whether a payment exists.
+    # Track whether a payment record actually existed.
     reconciled["has_payment"] = (
         reconciled["paid_amount"].notna()
     )
@@ -98,7 +99,7 @@ def find_unmatched_payments(
     payments: pd.DataFrame,
 ) -> pd.DataFrame:
     """Find payments that do not have a corresponding sale."""
-
+    
     sales_orders = sales[
         ["order_id"]
     ].drop_duplicates()
